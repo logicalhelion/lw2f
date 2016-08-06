@@ -1,0 +1,10 @@
+Changes
+lib/LW2F.pm
+lib/LW2F/App.pm
+lib/LW2F/Config.pm
+LICENSE
+lw2fd
+Makefile.PL
+MANIFEST
+README
+t/LW2F.t

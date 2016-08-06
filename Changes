@@ -1,0 +1,6 @@
+Revision history for Perl extension LW2F.
+
+0.01  Fri Aug  5 16:10:07 2016
+	- original version; created by h2xs 1.23 with options
+		-XA -b 5.10.0 LW2F
+

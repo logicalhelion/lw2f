@@ -1,0 +1,305 @@
+#!/usr/bin/env perl
+
+use 5.010;
+use strict;
+use warnings;
+use FCGI;
+use Getopt::Long;
+#Getopt::Long::Configure("bundling_values");
+
+our $VERSION = '0.01_3161';
+
+package main;
+
+my $OPT_COMMAND;
+my $OPT_PORT;
+my $OPT_INTERFACE;
+my $OPT_PROCESSES;
+my $OPT_CONF_FILE;
+
+my $OPT_HELP  = 0;
+my $OPT_DEBUG = 0;
+
+GetOptions(
+    "command=s"   => \$OPT_COMMAND,
+    "port=i"      => \$OPT_PORT,
+    "interface=s" => \$OPT_INTERFACE,
+    "number=i"    => \$OPT_PROCESSES,
+    "file=s"      => \$OPT_CONF_FILE,
+    "help"        => \$OPT_HELP,
+    "debug"       => \$OPT_DEBUG,
+);
+
+#[] param checking
+
+my $f = LW2Fd->new(
+    command   => $OPT_COMMAND,
+    port      => $OPT_PORT,
+    interface => $OPT_INTERFACE,
+    processes => $OPT_PROCESSES,
+    conf_file => $OPT_CONF_FILE,
+);
+
+$f->prep();
+
+$f->setup_socket();
+
+$f->daemonize();
+
+$f->main_loop();
+
+exit(0);
+
+
+package LW2Fd;
+
+use File::Spec ();
+use IO::Handle ();
+use POSIX;
+use JSON::Tiny qw(decode_json);
+$JSON::Tiny::TRUE  = 1;
+$JSON::Tiny::FALSE = 0;
+
+use Class::Tiny qw(
+    command
+    port
+    interface
+    processes
+    running_proc_info
+    conf_file
+    config
+    apps_basedir
+    apps_baseurl
+    htdocs_basedir
+    htdocs_baseurl
+);
+
+
+sub BUILD {
+    my ($self, $params) = @_;
+
+    if ( defined $params->{conf_file} ) {
+        $self->conf_file( $params->{conf_file} );
+    } elsif ( defined $ENV{LW2F_SERVER_CONF} ) {
+        $self->conf_file( $ENV{LW2F_SERVER_CONF} );
+    }
+    
+    my $proc_info = { };
+    $self->running_proc_info($proc_info);
+}
+
+
+sub prep {
+    my $self = shift;
+    my %params = @_;
+    if ( defined $params{conf_file}) {
+        $self->conf_file( $params{conf_file} );
+    }
+    
+    # ok, if we don't have a conf file by now, we should just give up
+    if ( !defined $self->conf_file() ) {
+        say STDERR "ERROR:  No LW2F conf file specified.  Use the -f option or set the LW2F_SERVER_CONF environment variable.";
+        exit(1);
+    }
+    
+    my $scf;
+    {
+        local $/ = undef;
+        open(my $scfh, '<', $self->conf_file) or die($!);
+        $scf = <$scfh>;
+        close $scfh;
+    }
+
+    my $sc = decode_json($scf);
+        
+    $self->config($sc);
+
+    # set certain server values from the config
+    $self->apps_basedir( $sc->{apps_basedir} );
+    $self->apps_baseurl( $sc->{apps_baseurl} );
+    $self->htdocs_basedir( $sc->{htdocs_basedir} );
+    $self->htdocs_baseurl( $sc->{htdocs_baseurl} );
+
+    $sc;
+}
+
+sub add_running_proc {
+    my $self = shift;
+    my $pid = shift;
+    my $procs = $self->running_proc_info();
+    $procs->{$pid} = time();
+}
+
+sub rm_running_proc {
+    my $self = shift;
+    my $pid = shift;
+    my $procs = $self->running_proc_info();
+    delete $procs->{$pid};
+    say STDERR "PROCS: ",scalar keys %$procs;
+}
+
+sub setup_socket {
+    my $self = shift;
+    my $port_spec = $self->interface.':'.$self->port;
+    
+    # first, open the desired TCP socket
+    my $s = FCGI::OpenSocket($port_spec, 100);
+ #[]pass these instead of STDIN/OUT/ERR?
+ #   my $in  = IO::Handle->new;
+ #   my $out = IO::Handle->new;
+ #   my $err = IO::Handle->new;
+
+    # now, setup the port with a FastCGI request handler
+    my $r = FCGI::Request(\*STDIN, \*STDOUT, *STDERR, \%ENV, $s);
+    
+    # now tie STDIN to the socket
+    open(STDIN, '+<&', $s) or die $!;
+    
+    1;
+}
+
+
+sub daemonize {
+    my $self = shift;
+    
+    # try to be a good daemon!
+    # except:  we won't be messing with STDIN, STDOUT, STDERR
+    # it might mess up FastCGI!
+    
+    # change to root dir
+#    chdir File::Spec->rootdir();
+    
+    # double fork() here
+    
+    # detach from shell
+#    POSIX::setsid();
+    
+    # setup signal handling for processes & for ourself
+    # reap dead children
+    $SIG{CHLD} = sub { $self->reap_processes() };
+    # catch TERM signals
+    #$SIG{TERM} = \&terminator;
+
+    
+    
+}
+
+
+sub reap_processes {
+    my $self = shift;
+    my $procs = $self->running_proc_info();
+
+    say STDERR "REAPING!";
+    
+    while ( (my $pid = waitpid(-1, &WNOHANG)) >0) {
+        say STDERR "CHLD received for $pid";
+        say STDERR "Exit Status: ", $? >> 8;
+        say STDERR "Signal Number: ", $? & 127;
+        say STDERR 'WIFEXITED: ', WIFEXITED($?);
+
+        $self->rm_running_proc($pid);
+        
+        if ( WIFEXITED($?) ) {
+        #[]?
+        }
+        
+    }
+    
+    $SIG{CHLD} = sub { $self->reap_processes() };
+    1;
+}
+
+
+sub main_loop {
+    my $self = shift;
+    my $max_procs = $self->processes ? $self->processes : 1;
+    my $running_procs = 0;
+    my $exit_now = 0;
+    
+    while (!$exit_now) {
+        eval {
+            my $procs = $self->running_proc_info();
+            $running_procs = scalar keys %$procs;
+            my $procs_to_launch = $max_procs - $running_procs;
+            say STDERR "MP:$max_procs RP:$running_procs PTL:$procs_to_launch";
+
+            
+            if ($procs_to_launch > 0) {
+            
+                for (1..$procs_to_launch) {
+                    $self->launch_command();
+                    $running_procs++;
+                }
+            }
+            sleep 5;
+            
+            
+            1;
+        } or do {
+            my $E = $@;
+            say STDERR "ERROR: Main Loop Exception:  $E";
+            $exit_now = 1;
+        };
+    }
+    
+    
+    1;
+}
+
+sub launch_command {
+    my $self = shift;
+    my $cmd = $self->command;
+    my $pid;
+
+	if ($pid = fork() ) {
+        # If we have the new PID, we are the parent
+        # make note of new process
+        $self->add_running_proc($pid);
+        
+    } elsif (defined $pid && $pid == 0) {
+        # If we have a PID but it is zero, we are the child
+
+        # chdir to app dir
+        my ($v, $d, $f) = File::Spec->splitpath($cmd);
+        chdir($d) or die("Cannot change to app directory: $!"); #[]?
+
+        # set the LW2F envvars for the child
+        $ENV{LW2F_APPS_BASEDIR} = $self->apps_basedir();
+        $ENV{LW2F_APPS_BASEURL} = $self->apps_baseurl();
+        $ENV{LW2F_HTDOCS_BASEDIR} = $self->htdocs_basedir();
+        $ENV{LW2F_HTDOCS_BASEURL} = $self->htdocs_baseurl();
+        
+        #[]? exec here
+        exec($cmd) or do {
+            say STDERR "ERROR: $!";
+            exit(1);
+        };
+    } else {
+        say STDERR "ERROR: fork() failed: $!";
+        exit(1);
+    }
+
+    1;
+}
+
+
+
+
+
+
+
+=head1 AUTHOR
+
+Logical Helion, LLC, E<lt>lhelion at cpan dot orgE<gt>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright (C) 2016 by Logical Helion, LLC.
+
+This library is free software; you can redistribute it and/or 
+modify it under the terms of the Artistic License 2.0.  See the 
+included LICENSE file for details.
+
+This software comes with no warranty of any kind.
+
+=cut

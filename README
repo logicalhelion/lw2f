@@ -1,0 +1,32 @@
+LW2F version 0.01
+=================
+
+LW2F is a research project designed to be a lightweight framework
+for FastCGI applications.
+
+INSTALLATION
+
+To install this module type the following:
+
+   perl Makefile.PL
+   make
+   make test
+   make install
+
+DEPENDENCIES
+
+This module requires these other modules and libraries:
+
+    CGI::Application 4.50
+    FCGI 0.78
+    JSON::Tiny 0.55
+
+COPYRIGHT AND LICENSE
+
+Copyright (C) 2016 by Logical Helion, LLC.
+
+This library is free software; you can redistribute it and/or 
+modify it under the terms of the Artistic License 2.0.  See the 
+included LICENSE file for details.
+
+This software comes with no warranty of any kind.
