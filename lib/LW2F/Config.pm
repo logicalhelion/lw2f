@@ -10,7 +10,7 @@ use JSON::Tiny qw(decode_json);
 $JSON::Tiny::TRUE  = 1;
 $JSON::Tiny::FALSE = 0;
 
-our $VERSION = '0.01_3161';
+our $VERSION = '0.01_4951';
 
 
 =head1 DESCRIPTION
@@ -51,13 +51,13 @@ sub parse_config {
     my %params = @_;
  
     foreach my $var (sort grep { /^LW2F/ } keys %ENV) {
-        say "CONFIG: ", $var, " = ", $ENV{$var};
+        say STDERR "CONFIG: ", $var, " = ", $ENV{$var}; #[]t
     }
  
     
     # die if we don't have the app conf file
     if ( !($self->app_conf_file) && !(-f $self->app_conf_file) ) {
-        die("App conf file not set or does not exist.");
+        die("ERROR: App conf file not set or does not exist.");
     }
 
     my $acf;
@@ -68,7 +68,7 @@ sub parse_config {
         close $acfh;
     }
     say $self->app_conf_file;
-    say "JSON: $acf";
+    say STDERR "JSON: $acf"; #[]t
 
     
     #[] handle errors better here
@@ -240,6 +240,12 @@ sub fixup_config {
     if ( $app_conf{tmpl_path} !~ /^\// ) {
         $app_conf{tmpl_path} = File::Spec->catfile( $app_conf{app_basedir}, $app_conf{tmpl_path} );
     }
+
+    # tmpl_class is supported as a config var,
+    # but we don't do anything with it here
+    # prep() will have to load the class, and
+    # setup() will use html_tmpl_class() to tell C-A
+    # to use it
     
     # set template options
     # we start with some sane defaults

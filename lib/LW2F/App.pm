@@ -7,9 +7,10 @@ use parent 'CGI::Application';
 
 use LW2F::Config;
 
-our $VERSION = '0.01_3161';
+our $VERSION = '0.02_0170';
 
-our $Config;
+our $Config = { };
+our $Databases = { };
 
 use Class::Tiny qw(
     config
@@ -37,7 +38,13 @@ sub prep {
         $Config->config()->{auto_rest} == 1 ) {
         $class->add_callback('prerun', 'lw2f_auto_rest_prerun');
     }
-    
+
+    # if there are databases configured,
+    # go ahead and load DBI and connect to them
+    if (exists $Config->config()->{databases} ) {
+        $class->lw2f_load_dbi();
+        $class->lw2f_connect_databases( $Config->config()->{databases} );
+    }
     
     $Config;
 }
@@ -54,6 +61,10 @@ sub get_config_var {
     $self->config()->config()->{$var_name};
 }
 
+#[]? better
+sub get_config_var_new {
+    return $_[0]->config()->config()->{$_[1]};
+}
 
 ## CGI::APPLICATION METHODS HERE ##
 
@@ -82,8 +93,9 @@ sub lw2f_init {
 
 sub setup {
     my $self = shift;
-    my $conf = $self->config();
-    my $c = $conf->config();
+#[] don't need?
+#   my $conf = $self->config();
+#    my $c = $conf->config();
     
     $self->mode_param( path_info => $self->get_config_var('path_mode_param') );
     $self->run_modes( $self->get_config_var('run_modes') );
@@ -135,6 +147,75 @@ sub lw2f_auto_rest_prerun {
     # if auto_rest isn't on, we don't do _anything at all_
 }
 
+
+sub lw2f_load_dbi {
+    my $dbi = 'DBI';
+    if ( !$dbi->can('connect') ) {
+        eval {
+            require DBI;
+            1;
+        } or do {
+            # rethrow error with added info
+            my $E = $@;
+            die('ERROR:  Could not load DBI module.  Is it installed?  '.$E);
+        };
+    }
+}
+
+
+sub lw2f_connect_databases {
+    my $self = shift;    
+    my $dbconfigs = shift;
+
+    foreach my $db ( keys %$dbconfigs ) {
+        my $dbh = $self->get_dbh( $db, $dbconfigs );
+        $Databases->{ $db } = $dbh;
+    }
+}
+
+
+sub get_dbh {
+    my $self = shift;
+    my $dbname = shift;
+    my $databases = @_ ? shift : $self->get_config_var('databases');
+    
+    unless ( defined $databases ) {
+        die("ERROR: No databases are defined in the application configuration."); #[]
+    }
+    
+    unless ( defined $databases->{$dbname} && defined $databases->{$dbname}->{dsn} ) {
+        die("ERROR: Database $dbname is not defined in the application configuration.");   #[]
+    }
+    
+    # for convenience
+    my $dbcreds = $databases->{$dbname};
+    
+    # we're going to modify the options, so make a copy of it to modify
+    my $options = { };
+    if ( defined $dbcreds->{options} ) {
+        while ( my ($key, $value) = each %{ $dbcreds->{options} } ) {
+            $options->{$key} = $value;
+        }
+    }
+    # add a private 'tag' to the database options
+    $options->{'private_lw2f_'.$$} = $$;
+    
+    my $dbh = DBI->connect_cached(
+        $dbcreds->{dsn},
+        $dbcreds->{user},
+        $dbcreds->{password},
+        $options
+    );
+    
+    # DBI should have thrown an error, but just in case...
+    unless ( defined $dbh ) {
+        die('ERROR:  Error connecting to database - '.$DBI::errstr);
+    }
+    
+    $dbh;
+}
+
+
 ## DEFAULT RUN MODE METHODS HERE ##
 ## THESE SHOULD BE OVERRIDDEN BY APPLICATIONS ##
 
@@ -182,7 +263,7 @@ Logical Helion, LLC, E<lt>lhelion at cpan dot orgE<gt>
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2016 by Logical Helion, LLC.
+Copyright (C) 2016-7 by Logical Helion, LLC.
 
 This library is free software; you can redistribute it and/or 
 modify it under the terms of the Artistic License 2.0.  See the 
