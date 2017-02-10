@@ -7,10 +7,11 @@ use parent 'CGI::Application';
 
 use LW2F::Config;
 
-our $VERSION = '0.02_0170';
+our $VERSION = '0.02_0570';
 
 our $Config = { };
 our $Databases = { };
+our $Routes = [ ];  #[]
 
 use Class::Tiny qw(
     config
@@ -32,7 +33,19 @@ sub prep {
     $class->add_callback('init', 'lw2f_init');
     $class->add_callback('load_tmpl', 'lw2f_load_tmpl');
 
-    # install callback for prerun phase
+    # install callbacks for prerun phase
+
+    # IF routes was set
+    # routes should always come *before* auto_rest
+#[]    if (exists $Config->config()->{routes} &&
+#        ref($Config->config()->{routes}) eq 'ARRAY' ) {
+#        $class->add_callback('prerun', 'lw2f_prerun_routes');
+#    }
+    if ( $params{routes} && ref($params{routes}) eq 'ARRAY' ) {
+        $Routes = $params{routes};
+        $class->add_callback('prerun', 'lw2f_prerun_routes');
+    }
+
     # IF auto_rest was set
     if (exists $Config->config()->{auto_rest} &&
         $Config->config()->{auto_rest} == 1 ) {
@@ -125,6 +138,44 @@ sub lw2f_load_tmpl {
             $ht_params->{$_} = $default_tmpl_options->{$_};
         }
     }
+}
+
+# prerun callbacks
+
+sub lw2f_prerun_routes {
+    my $self = shift;
+    my $routes = $self->get_config_var('routes');
+#[]    if ( defined $routes && ref($routes) eq 'ARRAY' ) {
+    if (@$Routes) {
+        my $q = $self->query();
+        my $path_info = $q->path_info();
+#[]        foreach my $route (@$routes) {
+        foreach my $route (@$Routes) {
+            # each route has only one key/value pair
+            my ($regex, $action) = %$route;
+            # test path_info against the route regex
+            if ( $path_info =~ m|^$regex| ) {
+                # route matches!
+                my @values = $path_info =~ m|^$regex$|;
+                # if given run_mode, reset run_mode
+                if ( defined $action->{run_mode} ) {
+                    $self->prerun_mode( $action->{run_mode} );
+                }
+                # if given params, fill in CGI query params
+                if ( defined $action->{params} && ref($action->{params}) eq 'ARRAY') {
+                    my $param_names = $action->{params};
+                    for (my $i = 0; $i < @$param_names; $i++) {
+                        $q->param('-name' => $param_names->[$i], '-value' => $values[$i]);
+                    }
+                }
+                
+                # we can only match one route, so if we matched one, we're done
+                last;
+            }
+        }
+    }
+    
+    # if routes isn't on, we don't do _anything at all_    
 }
 
 
