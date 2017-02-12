@@ -7,7 +7,7 @@ use parent 'CGI::Application';
 
 use LW2F::Config;
 
-our $VERSION = '0.02_0570';
+our $VERSION = '0.02_0660';
 
 our $Config = { };
 our $Databases = { };
@@ -22,6 +22,7 @@ use Class::Tiny qw(
 
 # sub BUILD {}
 
+
 ## CLASS METHODS HERE ##
 sub prep {
     my $class = shift;
@@ -35,12 +36,8 @@ sub prep {
 
     # install callbacks for prerun phase
 
-    # IF routes was set
+    # IF $params{routes} was set
     # routes should always come *before* auto_rest
-#[]    if (exists $Config->config()->{routes} &&
-#        ref($Config->config()->{routes}) eq 'ARRAY' ) {
-#        $class->add_callback('prerun', 'lw2f_prerun_routes');
-#    }
     if ( $params{routes} && ref($params{routes}) eq 'ARRAY' ) {
         $Routes = $params{routes};
         $class->add_callback('prerun', 'lw2f_prerun_routes');
@@ -58,14 +55,14 @@ sub prep {
         $class->lw2f_load_dbi();
         $class->lw2f_connect_databases( $Config->config()->{databases} );
     }
-    
-    $Config;
+
+    $class;
 }
 
 
 ## OBJECT METHODS HERE ##
 
-sub get_config_var {
+sub get_config_var_old {
     my $self = shift;
     my $var_name = shift;
     my $config = $self->config();
@@ -75,7 +72,7 @@ sub get_config_var {
 }
 
 #[]? better
-sub get_config_var_new {
+sub get_config_var {
     return $_[0]->config()->config()->{$_[1]};
 }
 
@@ -117,6 +114,7 @@ sub setup {
     $self->tmpl_path( $self->get_config_var('tmpl_path') );
     
 }
+
 
 
 # hooking callback load_tmpl so we can
