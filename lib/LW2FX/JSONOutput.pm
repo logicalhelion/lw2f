@@ -8,31 +8,28 @@ use JSON::Tiny 'encode_json';
 $JSON::Tiny::TRUE  = 1;
 $JSON::Tiny::FALSE = 0;
 
-our $VERSION = '0.00_00000';
+our $VERSION = '0.01_0760';
 
 our @EXPORT = qw(
-    _postrun_lw2f_plugin_jsonoutput
+    _postrun_lw2fx_jsonoutput
 );
 
 
-#[] this is out of the CGI::Application POD...hope it works.
 sub import {
     my $caller = scalar(caller);    
-    $caller->add_callback('postrun', '_postrun_lw2f_plugin_jsonoutput');
+    $caller->add_callback('postrun', '_postrun_lw2fx_jsonoutput');
     goto &Exporter::import;
 }
 
 
-sub _postrun_lw2f_plugin_jsonoutput {
+sub _postrun_lw2fx_jsonoutput {
     my $self = shift;
     my $response = shift;
-    print STDERR 'REF=',ref($response);    #[]
     
     # if the response data points to a scalar,
     # then the current run mode is doesn't need JSON
     # conversion; just pass on thru
     return 1 if ref($response) eq 'SCALAR';
-    print STDERR ' RREF=',ref($$response);    #[]
     
     my $json = encode_json($$response);
     
@@ -46,7 +43,7 @@ __END__
 
 =head1 NAME
 
-LW2FX::JSONOutput - 
+LW2FX::JSONOutput - automatically turn Perl structure responses into JSON format
 
 =head1 SYNOPSIS
 

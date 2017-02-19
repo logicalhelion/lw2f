@@ -7,7 +7,7 @@ use parent 'CGI::Application';
 
 use LW2F::Config;
 
-our $VERSION = '0.02_0660';
+our $VERSION = '0.02_0760';
 
 our $Config = { };
 our $Databases = { };
@@ -29,13 +29,15 @@ sub prep {
     my %params = @_;
     
     $Config = LW2F::Config->new(%params);
+
+    ## Install init and load_tmpl Callbacks ##
     
     # install callbacks for init and load_tmpl phase
     $class->add_callback('init', 'lw2f_init');
     $class->add_callback('load_tmpl', 'lw2f_load_tmpl');
 
-    # install callbacks for prerun phase
-
+    ## Install prerun Callbacks ##
+    
     # IF $params{routes} was set
     # routes should always come *before* auto_rest
     if ( $params{routes} && ref($params{routes}) eq 'ARRAY' ) {
@@ -48,7 +50,13 @@ sub prep {
         $Config->config()->{auto_rest} == 1 ) {
         $class->add_callback('prerun', 'lw2f_auto_rest_prerun');
     }
+    
+    # override C-A's run mode handling to make sure if a run mode
+    # doesn't exist, the client receives a 404
+    $class->add_callback('prerun', '_lw2f_prerun_missing_run_mode');
 
+    ## Database Support ##
+    
     # if there are databases configured,
     # go ahead and load DBI and connect to them
     if (exists $Config->config()->{databases} ) {
@@ -197,6 +205,24 @@ sub lw2f_auto_rest_prerun {
 }
 
 
+sub _lw2f_prerun_missing_run_mode {
+    my $self = shift;
+    my $rm = shift;
+    my $q = $self->query();
+    unless ( $self->can($rm) ) {
+        # Shouldn't have to start sending a response here,
+        # but C-A insists on sending a 200 OK response if a
+        # run mode doesn't exist (an error message is logged
+        # but the client never sees it).
+        print $q->header(
+            -status => '404 Not Found',
+            -type => 'text/plain',
+        );
+        print 'Run mode not defined.';
+        
+    }    
+}
+
 sub lw2f_load_dbi {
     my $dbi = 'DBI';
     if ( !$dbi->can('connect') ) {
@@ -268,7 +294,7 @@ sub get_dbh {
 ## DEFAULT RUN MODE METHODS HERE ##
 ## THESE SHOULD BE OVERRIDDEN BY APPLICATIONS ##
 
-sub error {
+sub error_old {
     my $self = shift;
     my $E = @_ ? shift : '' ;
     if ($E) {
@@ -278,6 +304,21 @@ sub error {
     } else {
         $self->header_add(-status => '404 File Not Found');
         return '';
+    }
+}
+
+sub error {
+    my $self = shift;
+    my $E = @_ ? shift : '';
+    if ( ref($E) ) {
+        $self->header_add(-status => $E->{status}.' '.$E->{error});
+        $self->header_add(-type => 'text/plain');
+        return $E->{message};
+    }
+    else {
+        $self->header_add(-status => '500 Internal Server Error');
+        $self->header_add(-type => 'text/plain');
+        return "$E";
     }
 }
 
