@@ -10,7 +10,7 @@ use JSON::Tiny qw(decode_json);
 $JSON::Tiny::TRUE  = 1;
 $JSON::Tiny::FALSE = 0;
 
-our $VERSION = '0.01_4951';
+our $VERSION = '0.02_3570';
 
 
 =head1 DESCRIPTION
@@ -190,15 +190,15 @@ sub fixup_config {
     }
     
     # if there are no run modes,
-    # define two called 'index' and 'error'
+    # define two called 'home' and 'error'
     if ( !defined $app_conf{run_modes} ) {
-        $app_conf{run_modes} = ['index','error'];
+        $app_conf{run_modes} = ['home','error'];
     }
     
     # if there is no start_mode defined,
     # default to the first one in the run_modes array
     # if run_modes wasn't originally defined either,
-    # this means 'index' will be defined as a run_mode
+    # this means 'home' will be defined as a run_mode
     # AND the start_mode
     if ( !defined $app_conf{start_mode} ) {
         $app_conf{start_mode} = $app_conf{run_modes}->[0];

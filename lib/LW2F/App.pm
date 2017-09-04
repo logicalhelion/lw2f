@@ -5,9 +5,11 @@ use strict;
 use warnings;
 use parent 'CGI::Application';
 
+use CGI::Fast ();
+
 use LW2F::Config;
 
-our $VERSION = '0.02_0760';
+our $VERSION = '0.02_3570';
 
 our $Config = { };
 our $Databases = { };
@@ -24,6 +26,22 @@ use Class::Tiny qw(
 
 
 ## CLASS METHODS HERE ##
+
+sub start_app {
+    my $class = shift;
+    my %params = @_;
+    
+    $class->prep(
+        app_conf_file  => $params{app_conf_file},
+        routes         => $params{routes},
+    ) or die("ERROR: Failed to prep application.  Does app.conf exist?");
+
+    while (my $q = CGI::Fast->new() ) {
+        my $app = $class->new({QUERY => $q});
+        $app->run();
+    }    
+}
+
 sub prep {
     my $class = shift;
     my %params = @_;
@@ -53,8 +71,10 @@ sub prep {
     
     # override C-A's run mode handling to make sure if a run mode
     # doesn't exist, the client receives a 404
-    $class->add_callback('prerun', '_lw2f_prerun_missing_run_mode');
+    #[] this is not ready yet; it causes problems with lw2f_prerun_routes
+    #$class->add_callback('prerun', '_lw2f_prerun_missing_run_mode');
 
+    
     ## Database Support ##
     
     # if there are databases configured,
@@ -209,6 +229,7 @@ sub _lw2f_prerun_missing_run_mode {
     my $self = shift;
     my $rm = shift;
     my $q = $self->query();
+
     unless ( $self->can($rm) ) {
         # Shouldn't have to start sending a response here,
         # but C-A insists on sending a 200 OK response if a
@@ -216,9 +237,9 @@ sub _lw2f_prerun_missing_run_mode {
         # but the client never sees it).
         print $q->header(
             -status => '404 Not Found',
-            -type => 'text/plain',
+            -type => 'text/html',
         );
-        print 'Run mode not defined.';
+        print '<h1>404 Not Found</h1>';
         
     }    
 }
@@ -322,7 +343,7 @@ sub error {
     }
 }
 
-sub index {
+sub home {
     my $self = shift;
     qq{
 <!doctype html>
@@ -331,8 +352,8 @@ sub index {
 <body>
 <h1>Hello World!</h1>
 <p>
-This is the "index" method, the default run mode for LW2F web applications. <br />
-You will want to define an "index" method in your own application <br />
+This is the "home" method, the default run mode for LW2F web applications. <br />
+You will want to define an "home" method in your own application <br />
 to override this default run mode.
 </p>
 </body>
