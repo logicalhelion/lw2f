@@ -10,7 +10,7 @@ use JSON::Tiny qw(decode_json);
 $JSON::Tiny::TRUE  = 1;
 $JSON::Tiny::FALSE = 0;
 
-our $VERSION = '0.02_3570';
+our $VERSION = '0.02_3870';
 
 
 =head1 DESCRIPTION
@@ -35,7 +35,7 @@ sub BUILD {
     }
     
     if (keys %$params) {
-        $self->parse_config();
+        $self->parse_config(%$params);
     }
     
 }
@@ -67,7 +67,7 @@ sub parse_config {
         $acf = <$acfh>;
         close $acfh;
     }
-    say $self->app_conf_file;
+    say STDERR "CONF: ",$self->app_conf_file;
     say STDERR "JSON: $acf"; #[]t
 
     
@@ -77,6 +77,7 @@ sub parse_config {
     my $ac = decode_json($acf);
     
     $self->app_config($ac);
+
     my $config = $self->fixup_config($ac, \%params);
     $self->config($config);
     $config;
@@ -92,12 +93,31 @@ sub fixup_config {
     my $ac = shift;
     my $params = shift;
     my %app_conf;
-    
+
     # copy app conf values over
     foreach my $key (keys %$ac) {
         $app_conf{$key} = $ac->{$key};
     }
 
+    # set up routes first
+    # that way, a run_modes setting in the conf file will override routes
+    $app_conf{routes} = 0;
+    if ( defined $params->{routes} && ref($params->{routes}) eq 'ARRAY' ) {
+        my @route_run_modes;
+        foreach ( @{ $params->{routes} } ) {
+            my ($r, $a) = %$_;
+            push(@route_run_modes, $a->{run_mode} );
+            # if this run mode is the start mode, set that too
+            if (defined $a->{start_mode} && $a->{start_mode} == 1) {
+                $app_conf{start_mode} = $a->{run_mode};
+            }            
+        }
+        if (@route_run_modes) {
+            $app_conf{run_modes} = \@route_run_modes;
+            $app_conf{routes} = 1;
+        }
+    }
+    
     # copy over run_modes
     if ( defined $app_conf{run_modes} && ref($app_conf{run_modes}) eq 'ARRAY') {
         my @run_modes = map { $_ } @{ $app_conf{run_modes} };
@@ -184,8 +204,9 @@ sub fixup_config {
     # this will help the user get started with a minimal conf file
 
     # if the run_mode path param wasn't set
+    # and we are using C-A's default or auto_rest (no routes),
     # default to 1 (this first part of path_info, after the 1st '/')
-    if ( !defined $app_conf{path_mode_param} ) {
+    if ( !$app_conf{routes} && !defined $app_conf{path_mode_param} ) {
         $app_conf{path_mode_param} = 1;
     }
     
@@ -226,7 +247,7 @@ sub fixup_config {
     # the lw2f_auto_rest_prerun() callback will switch runmodes
     # to these as needed
     if (exists $app_conf{auto_rest} && $app_conf{auto_rest} == 1) {
-        my %expanded_rm_h = map { $_ => 1 } map { !/_(GET|POST|PUT|DELETE)$/ ? ($_, $_.'_GET', $_.'_POST', $_.'_PUT',$_.'_DELETE') : $_ } @{ $app_conf{run_modes} };
+        my %expanded_rm_h = map { $_ => 1 } map { !/_(GET|HEAD|OPTIONS|PATCH|POST|PUT|DELETE)$/ ? ($_, $_.'_GET', $_.'_HEAD', $_.'_OPTIONS', $_.'_PATCH', $_.'_POST', $_.'_PUT',$_.'_DELETE') : $_ } @{ $app_conf{run_modes} };
         my @expanded_rm = sort keys %expanded_rm_h;
         $app_conf{run_modes} = \@expanded_rm;
     }

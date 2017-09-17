@@ -4,16 +4,16 @@ use 5.010;
 use strict;
 use warnings;
 use parent 'CGI::Application';
+use List::Util 'any';
 
 use CGI::Fast ();
 
 use LW2F::Config;
 
-our $VERSION = '0.02_3570';
+our $VERSION = '0.02_3870';
 
 our $Config = { };
 our $Databases = { };
-our $Routes = [ ];  #[]
 
 use Class::Tiny qw(
     config
@@ -33,19 +33,28 @@ sub start_app {
     
     $class->prep(
         app_conf_file  => $params{app_conf_file},
-        routes         => $params{routes},
+        routes         => defined $params{routes} ? $params{routes} : undef,
     ) or die("ERROR: Failed to prep application.  Does app.conf exist?");
 
     while (my $q = CGI::Fast->new() ) {
         my $app = $class->new({QUERY => $q});
         $app->run();
     }    
+    1;
 }
+
 
 sub prep {
     my $class = shift;
     my %params = @_;
-    
+
+    # if the 'routes' param is not defined, but the ROUTES() method is,
+    # set the routes param so the routes are properly incorporated into
+    # the app's config
+    if ( !defined $params{routes} &&
+        $class->can('ROUTES') && ref($class->ROUTES) eq 'ARRAY' ) {
+        $params{routes} = $class->ROUTES();
+    }
     $Config = LW2F::Config->new(%params);
 
     ## Install init and load_tmpl Callbacks ##
@@ -58,9 +67,8 @@ sub prep {
     
     # IF $params{routes} was set
     # routes should always come *before* auto_rest
-    if ( $params{routes} && ref($params{routes}) eq 'ARRAY' ) {
-        $Routes = $params{routes};
-        $class->add_callback('prerun', 'lw2f_prerun_routes');
+    if ( $class->can('ROUTES') && ref($class->ROUTES) eq 'ARRAY') {
+        $class->add_callback('prerun', '_prerun_lw2f_routes');
     }
 
     # IF auto_rest was set
@@ -168,19 +176,25 @@ sub lw2f_load_tmpl {
 
 # prerun callbacks
 
-sub lw2f_prerun_routes {
+sub _prerun_lw2f_routes {
     my $self = shift;
-    my $routes = $self->get_config_var('routes');
-#[]    if ( defined $routes && ref($routes) eq 'ARRAY' ) {
-    if (@$Routes) {
+    if ( @{$self->ROUTES} ) {
         my $q = $self->query();
         my $path_info = $q->path_info();
-#[]        foreach my $route (@$routes) {
-        foreach my $route (@$Routes) {
+        foreach my $route ( @{$self->ROUTES} ) {
             # each route has only one key/value pair
             my ($regex, $action) = %$route;
+
             # test path_info against the route regex
+            #[] request_method case??
             if ( $path_info =~ m|^$regex| ) {
+                # the request matched the regex, but if a method list was defined,
+                # we need to check that too
+                if ( defined $action->{methods} &&
+                    !any { $q->request_method } @{ $action->{methods} } ) {
+                    print STDERR "ROUTE AND METHOD NO MATCHES!!";  #[]
+                    next;
+                }
                 # route matches!
                 my @values = $path_info =~ m|^$regex$|;
                 # if given run_mode, reset run_mode

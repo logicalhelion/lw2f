@@ -9,6 +9,7 @@ WriteMakefile(
                             'CGI::Application' => 4.50,
                             'FCGI'             => 0.74,
                             'JSON::Tiny'       => 0.55,
+                            'List::Util'       => 1.00
                             
                           }, # e.g., Module::Name => 1.1
     ABSTRACT_FROM     => 'lib/LW2F.pm', # retrieve abstract from module
